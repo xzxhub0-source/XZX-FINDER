@@ -1,69 +1,129 @@
-import express from "express";
-import fetch from "node-fetch";
-import cors from "cors";
+const express = require("express");
+const fetch = require("node-fetch");
 
 const app = express();
-app.use(cors());
 app.use(express.json());
 
+/* =========================
+   CONFIG
+========================= */
+
+const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 const API_KEY = process.env.API_KEY;
-const PORT = process.env.PORT || 3000;
 
-// In-memory server storage
-const servers = new Map();
+/* =========================
+   IN-MEMORY STORAGE
+========================= */
 
-// Auth middleware
+const servers = new Map(); 
+// key = jobId
+// value = { objectName, placeId, jobId, players, lastSeen }
+
+/* =========================
+   AUTH MIDDLEWARE
+========================= */
+
 function auth(req, res, next) {
   if (req.headers["x-api-key"] !== API_KEY) {
-    return res.status(403).json({ error: "Forbidden" });
+    return res.status(401).json({ error: "Unauthorized" });
   }
   next();
 }
 
-// Receive scan data
-app.post("/report", auth, async (req, res) => {
-  const { objectName, jobId, placeId } = req.body;
-  if (!objectName || !jobId || !placeId) {
-    return res.status(400).json({ error: "Invalid payload" });
+/* =========================
+   DISCORD BOT MESSAGE
+========================= */
+
+async function sendDiscordMessage(data) {
+  const content =
+`🛰️ **OBJECT FOUND**
+**Object:** ${data.objectName}
+**Players:** ${data.players}
+**PlaceId:** ${data.placeId}
+**JobId:** ${data.jobId}`;
+
+  await fetch(
+    `https://discord.com/api/v10/channels/${CHANNEL_ID}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bot ${BOT_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ content })
+    }
+  );
+}
+
+/* =========================
+   REPORT ENDPOINT (POST)
+========================= */
+
+app.post("/api/report", auth, async (req, res) => {
+  const { objectName, placeId, jobId, players } = req.body;
+
+  if (!jobId || !placeId) {
+    return res.status(400).json({ error: "Invalid data" });
   }
 
   if (!servers.has(jobId)) {
-    servers.set(jobId, {
+    const data = {
       objectName,
-      jobId,
       placeId,
-      time: Date.now()
-    });
+      jobId,
+      players,
+      lastSeen: Date.now()
+    };
 
-    // Send Discord message
-    await fetch(
-      `https://discord.com/api/v10/channels/${CHANNEL_ID}/messages`,
-      {
-        method: "POST",
-        headers: {
-          "Authorization": `Bot ${BOT_TOKEN}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          content:
-            `🔍 **Object Found**\n` +
-            `**Name:** ${objectName}\n` +
-            `**PlaceId:** ${placeId}\n` +
-            `**JobId:** ${jobId}`
-        })
-      }
-    );
+    servers.set(jobId, data);
+
+    try {
+      await sendDiscordMessage(data);
+    } catch (e) {
+      console.error("Discord error:", e.message);
+    }
   }
 
   res.json({ success: true });
 });
 
-// Serve server list
-app.get("/servers", (req, res) => {
-  res.json([...servers.values()]);
+/* =========================
+   FETCH SERVERS (GET)
+========================= */
+
+app.get("/api/servers", (req, res) => {
+  const list = Array.from(servers.values())
+    .sort((a, b) => b.lastSeen - a.lastSeen);
+
+  res.json(list);
 });
+
+/* =========================
+   CLEANUP (REMOVE DEAD SERVERS)
+========================= */
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [jobId, data] of servers) {
+    if (now - data.lastSeen > 10 * 60 * 1000) {
+      servers.delete(jobId);
+    }
+  }
+}, 60 * 1000);
+
+/* =========================
+   HEALTH CHECK
+========================= */
+
+app.get("/", (_, res) => {
+  res.send("Roblox Server Scanner is running.");
+});
+
+/* =========================
+   START SERVER
+========================= */
 
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
