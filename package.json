@@ -1,16 +1,16 @@
 {
   "name": "roblox-server-scanner",
   "version": "1.0.0",
-  "description": "Roblox server scanner relay using Discord bot token",
+  "description": "Roblox server scanner with Discord bot",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
+  "dependencies": {
+    "discord.js": "^14.14.1"
+  },
   "engines": {
     "node": ">=18"
-  },
-  "dependencies": {
-    "express": "^4.19.2"
   }
 }
