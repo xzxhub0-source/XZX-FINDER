@@ -1,5 +1,4 @@
 const express = require("express");
-const fetch = require("node-fetch");
 
 const app = express();
 app.use(express.json());
@@ -17,9 +16,7 @@ const API_KEY = process.env.API_KEY;
    IN-MEMORY STORAGE
 ========================= */
 
-const servers = new Map(); 
-// key = jobId
-// value = { objectName, placeId, jobId, players, lastSeen }
+const servers = new Map();
 
 /* =========================
    AUTH MIDDLEWARE
@@ -58,14 +55,14 @@ async function sendDiscordMessage(data) {
 }
 
 /* =========================
-   REPORT ENDPOINT (POST)
+   REPORT ENDPOINT
 ========================= */
 
 app.post("/api/report", auth, async (req, res) => {
   const { objectName, placeId, jobId, players } = req.body;
 
   if (!jobId || !placeId) {
-    return res.status(400).json({ error: "Invalid data" });
+    return res.status(400).json({ error: "Invalid payload" });
   }
 
   if (!servers.has(jobId)) {
@@ -81,8 +78,8 @@ app.post("/api/report", auth, async (req, res) => {
 
     try {
       await sendDiscordMessage(data);
-    } catch (e) {
-      console.error("Discord error:", e.message);
+    } catch (err) {
+      console.error("Discord error:", err.message);
     }
   }
 
@@ -90,18 +87,18 @@ app.post("/api/report", auth, async (req, res) => {
 });
 
 /* =========================
-   FETCH SERVERS (GET)
+   FETCH SERVERS
 ========================= */
 
-app.get("/api/servers", (req, res) => {
-  const list = Array.from(servers.values())
-    .sort((a, b) => b.lastSeen - a.lastSeen);
-
-  res.json(list);
+app.get("/api/servers", (_, res) => {
+  res.json(
+    Array.from(servers.values())
+      .sort((a, b) => b.lastSeen - a.lastSeen)
+  );
 });
 
 /* =========================
-   CLEANUP (REMOVE DEAD SERVERS)
+   CLEANUP
 ========================= */
 
 setInterval(() => {
@@ -118,11 +115,11 @@ setInterval(() => {
 ========================= */
 
 app.get("/", (_, res) => {
-  res.send("Roblox Server Scanner is running.");
+  res.send("Roblox Server Scanner running ✅");
 });
 
 /* =========================
-   START SERVER
+   START
 ========================= */
 
 app.listen(PORT, () => {
