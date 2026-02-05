@@ -1,50 +1,70 @@
 import express from "express";
 import fetch from "node-fetch";
+import cors from "cors";
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
-// ==== CONFIG ====
-const BOT_TOKEN = process.env.BOT_TOKEN; // Your bot token here
-const CHANNEL_ID = process.env.CHANNEL_ID; // Channel to send messages to
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const CHANNEL_ID = process.env.CHANNEL_ID;
+const API_KEY = process.env.API_KEY;
+const PORT = process.env.PORT || 3000;
 
-const servers = new Map(); // jobId -> server data
+// In-memory server storage
+const servers = new Map();
 
-// ==== HELPER: SEND MESSAGE VIA BOT ====
-async function sendBotMessage(content) {
-	await fetch(`https://discord.com/api/v10/channels/${CHANNEL_ID}/messages`, {
-		method: "POST",
-		headers: {
-			"Authorization": `Bot ${BOT_TOKEN}`,
-			"Content-Type": "application/json"
-		},
-		body: JSON.stringify({ content })
-	});
+// Auth middleware
+function auth(req, res, next) {
+  if (req.headers["x-api-key"] !== API_KEY) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  next();
 }
 
-// ==== REPORT ENDPOINT ====
-app.post("/report", async (req, res) => {
-	const data = req.body;
-	if (!data?.jobId) return res.sendStatus(400);
+// Receive scan data
+app.post("/report", auth, async (req, res) => {
+  const { objectName, jobId, placeId } = req.body;
+  if (!objectName || !jobId || !placeId) {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
 
-	if (!servers.has(data.jobId)) {
-		servers.set(data.jobId, data);
+  if (!servers.has(jobId)) {
+    servers.set(jobId, {
+      objectName,
+      jobId,
+      placeId,
+      time: Date.now()
+    });
 
-		// Send message via bot
-		const msg = 
-`🛰 **Object Found**
-**Name:** ${data.objectName}
-**JobId:** ${data.jobId}
-**Players:** ${data.players}`;
-		await sendBotMessage(msg);
-	}
+    // Send Discord message
+    await fetch(
+      `https://discord.com/api/v10/channels/${CHANNEL_ID}/messages`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bot ${BOT_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          content:
+            `🔍 **Object Found**\n` +
+            `**Name:** ${objectName}\n` +
+            `**PlaceId:** ${placeId}\n` +
+            `**JobId:** ${jobId}`
+        })
+      }
+    );
+  }
 
-	res.sendStatus(200);
+  res.json({ success: true });
 });
 
-// ==== SERVERS FETCH FOR GUI ====
+// Serve server list
 app.get("/servers", (req, res) => {
-	res.json([...servers.values()]);
+  res.json([...servers.values()]);
 });
 
-app.listen(3000, () => console.log("Relay running with Bot Token"));
+app.listen(PORT, () => {
+  console.log("Server running on port", PORT);
+});
