@@ -1,16 +1,26 @@
 {
-  "name": "roblox-server-scanner",
+  "name": "xzx-base-finder",
   "version": "1.0.0",
-  "description": "Roblox server scanner with Discord bot",
+  "description": "XZX HUB | Roblox Base Finder Discord bot using webhooks",
   "main": "index.js",
-  "type": "commonjs",
-  "scriptsyeyeh": {
+  "type": "module",
+  "scripts": {
     "start": "node index.js"
   },
+  "keywords": [
+    "roblox",
+    "discord",
+    "webhook",
+    "base-finder",
+    "xzx"
+  ],
+  "author": "XZX HUB",
+  "license": "MIT",
   "dependencies": {
-    "discord.js": "^14.14.1"
+    "node-fetch": "^3.3.2",
+    "uuid": "^9.0.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=18.0.0"
   }
 }
