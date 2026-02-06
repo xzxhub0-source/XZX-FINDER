@@ -4,7 +4,7 @@
   "description": "Roblox server scanner with Discord bot",
   "main": "index.js",
   "type": "commonjs",
-  "scripts": {
+  "scriptsyeyeh": {
     "start": "node index.js"
   },
   "dependencies": {
