@@ -1,26 +1,14 @@
 {
   "name": "xzx-base-finder",
   "version": "1.0.0",
-  "description": "XZX HUB | Roblox Base Finder Discord bot using webhooks",
+  "description": "Roblox Base Finder with Discord embeds",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js"
   },
-  "keywords": [
-    "roblox",
-    "discord",
-    "webhook",
-    "base-finder",
-    "xzx"
-  ],
-  "author": "XZX HUB",
-  "license": "MIT",
   "dependencies": {
     "node-fetch": "^3.3.2",
     "uuid": "^9.0.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
   }
 }
