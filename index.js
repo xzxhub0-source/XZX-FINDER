@@ -1,67 +1,66 @@
-import fs from "fs";
-import fetch from "node-fetch";
-import { v4 as uuidv4 } from "uuid";
+// index.js
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
+import fetch from "node-fetch"; // If using Node 18+, fetch is global. Otherwise, install node-fetch
 
-// Load your JSON bases (medium, high, ultimate)
-import mediumBases from "./medium.json" assert { type: "json" };
-import highBases from "./high.json" assert { type: "json" };
-import ultimateBases from "./ultimate.json" assert { type: "json" };
+// __dirname workaround for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Webhook URLs (from Railway ENV)
-const MEDIUM_WEBHOOK = process.env.MEDIUM_WEBHOOK;
-const HIGH_WEBHOOK = process.env.HIGH_WEBHOOK;
-const ULTIMATE_WEBHOOK = process.env.ULTIMATE_WEBHOOK;
+// Config
+const WEBHOOK_URL = process.env.WEBHOOK_URL || "YOUR_WEBHOOK_URL_HERE"; // set in Railway secrets
 
-// Helper to create Discord embed
-function createEmbed(baseName, worth, joinLink) {
-  const timestamp = new Date().toISOString();
-  return {
-    embeds: [
-      {
-        title: "| XZX HUB | BASE FINDER |",
-        description: "🔍 Detailed Roblox Base Finder Result",
-        color: 0x2f3136, // dark Discord-like color
-        fields: [
-          { name: "📛 Name", value: baseName, inline: true },
-          { name: "💰 Worth", value: worth || "N/A", inline: true },
-          { name: "👥 Players", value: "0/0", inline: true },
-          { name: "🆔 Job ID (Mobile)", value: `\`${uuidv4()}\``, inline: true },
-          { name: "🆔 Job ID (PC)", value: `\`${uuidv4()}\``, inline: true },
-          { name: "🌐 Join Link", value: `[Click to Join](${joinLink})`, inline: true }
-        ],
-        footer: {
-          text: `| PROVIDED BY XZX HUB | AT ${timestamp}`
+// Load JSON helper
+async function loadJSON(fileName) {
+    const filePath = path.join(__dirname, fileName);
+    const data = await fs.readFile(filePath, "utf-8");
+    return JSON.parse(data);
+}
+
+// Send to webhook
+async function sendWebhook(message) {
+    if (!WEBHOOK_URL) return;
+    try {
+        await fetch(WEBHOOK_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: message })
+        });
+    } catch (err) {
+        console.error("Webhook error:", err);
+    }
+}
+
+// Main function
+async function main() {
+    try {
+        const mediumBases = await loadJSON("medium.json");
+        const highBases = await loadJSON("high.json");
+        const ultimateBases = await loadJSON("ultimate.json");
+
+        console.log("✅ Medium Bases Loaded:", mediumBases.length);
+        console.log("✅ High Bases Loaded:", highBases.length);
+        console.log("✅ Ultimate Bases Loaded:", ultimateBases.length);
+
+        // Example: send first medium base to webhook
+        if (mediumBases.length > 0) {
+            const base = mediumBases[0];
+            await sendWebhook(`Medium Base Found: ${base.name} - $${base.earning}`);
         }
-      }
-    ]
-  };
+
+        // Your base finding logic here
+        // Iterate over all categories
+        for (const base of [...mediumBases, ...highBases, ...ultimateBases]) {
+            console.log(`Base: ${base.name} | Earnings: $${base.earning}`);
+            // Optionally send webhook
+            // await sendWebhook(`Found Base: ${base.name} - $${base.earning}`);
+        }
+
+    } catch (err) {
+        console.error("Error loading JSON files:", err);
+    }
 }
 
-// Send base to Discord
-async function sendToDiscord(base, tier) {
-  let webhook = ULTIMATE_WEBHOOK;
-  if (tier === "high") webhook = HIGH_WEBHOOK;
-  if (tier === "medium") webhook = MEDIUM_WEBHOOK;
-
-  const embedPayload = createEmbed(base.name, base.worth, base.link || "https://roblox.com");
-  try {
-    const res = await fetch(webhook, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(embedPayload)
-    });
-    if (!res.ok) console.error(`Failed to send ${base.name} to Discord: ${res.status}`);
-  } catch (err) {
-    console.error("Discord webhook error:", err);
-  }
-}
-
-// Send all bases
-async function sendAllBases() {
-  for (const base of mediumBases) await sendToDiscord(base, "medium");
-  for (const base of highBases) await sendToDiscord(base, "high");
-  for (const base of ultimateBases) await sendToDiscord(base, "ultimate");
-  console.log("✅ All bases sent to Discord!");
-}
-
-sendAllBases();
+// Run
+main();
