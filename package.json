@@ -1,14 +1,11 @@
 {
   "name": "xzx-base-finder",
   "version": "1.0.0",
-  "description": "Roblox Base Finder with Discord embeds",
-  "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "node-fetch": "^3.3.2",
-    "uuid": "^9.0.0"
+    "node-fetch": "^3.3.1"
   }
 }
