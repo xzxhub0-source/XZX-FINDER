@@ -1,43 +1,50 @@
-// index.js
-import fs from "fs";
-import path from "path";
+require("dotenv").config();
 
-// Path to your JSON file
-const jsonPath = path.resolve("./bases.json");
+const express = require("express");
+const cors = require("cors");
+const { Client, GatewayIntentBits } = require("discord.js");
 
-// Load JSON
-let bases;
-try {
-    const rawData = fs.readFileSync(jsonPath, "utf8");
-    bases = JSON.parse(rawData);
-    console.log("✅ Bases loaded successfully!");
-} catch (err) {
-    console.error("❌ Error loading JSON file:", err);
-    process.exit(1); // Stop if file can't be read
-}
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-// Function to search a base by name (case-insensitive)
-function findBaseByName(name) {
-    const tiers = ["Medium", "High", "Ultimate"];
-    for (const tier of tiers) {
-        const base = bases[tier].find(b => b.name.toLowerCase() === name.toLowerCase());
-        if (base) return { tier, ...base };
+let activeServers = {};
+
+const cleanInterval = 60 * 1000;
+
+// Discord Bot
+const bot = new Client({ intents: [GatewayIntentBits.Guilds] });
+
+bot.once("ready", () => {
+  console.log("Discord Bot Online!");
+});
+bot.login(process.env.DISCORD_TOKEN);
+
+// POST /api/report
+app.post("/api/report", (req, res) => {
+    const { object, jobId, players, eps, timestamp } = req.body;
+
+    activeServers[jobId] = {
+        object,
+        jobId,
+        players,
+        eps,
+        timestamp
+    };
+
+    res.send({ ok: true });
+});
+
+// GET /api/servers
+app.get("/api/servers", (req, res) => {
+    const now = Date.now();
+    for (let key in activeServers) {
+        if (now - (activeServers[key].timestamp * 1000) > cleanInterval)
+            delete activeServers[key];
     }
-    return null;
-}
+    res.json(Object.values(activeServers));
+});
 
-// Example usage:
-const searchName = "Pandanini Frostini";
-const result = findBaseByName(searchName);
-
-if (result) {
-    console.log(`Found base: ${result.name}`);
-    console.log(`Tier: ${result.tier}`);
-    console.log(`Worth: ${result.worth}`);
-} else {
-    console.log(`Base "${searchName}" not found.`);
-}
-
-// Optional: list all bases in a tier
-console.log("\nAll Medium Bases:");
-bases.Medium.forEach(b => console.log(`${b.name} - ${b.worth}`));
+// Start
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Backend running on ${PORT}`));
