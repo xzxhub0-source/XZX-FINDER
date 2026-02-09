@@ -5,11 +5,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// In-memory server store
 let servers = {};
-const EXPIRE_MS = 60 * 1000; // 60 seconds
+const EXPIRE_MS = 60 * 1000;
 
-// Roblox reports a server
+// Report endpoint
 app.post("/api/report", (req, res) => {
   const { object, jobId, players, eps, timestamp } = req.body;
 
@@ -28,7 +27,7 @@ app.post("/api/report", (req, res) => {
   res.json({ success: true });
 });
 
-// Roblox GUI fetches servers
+// Fetch endpoint
 app.get("/api/servers", (req, res) => {
   const now = Date.now();
 
@@ -41,12 +40,19 @@ app.get("/api/servers", (req, res) => {
   res.json(Object.values(servers));
 });
 
-// Health check (optional but useful)
+// Root health check
 app.get("/", (req, res) => {
   res.send("XZX Server Finder backend online");
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`XZX Finder backend running on port ${PORT}`);
+});
+
+// Graceful shutdown (prevents scary logs)
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down cleanly");
+  server.close(() => process.exit(0));
 });
