@@ -1,21 +1,25 @@
-const express = require("express");
+// ======================
+// XZX Finder Backend
+// ES Module version for Railway
+// ======================
+
+import express from "express";
 
 const app = express();
 app.use(express.json());
 
+console.log("Starting XZX Finder backend...");
+
+// ======================
+// In-memory server store
+// ======================
 const servers = new Map();
 
-/*
-jobId => {
-  jobId,
-  placeId,
-  objectName,
-  players,
-  maxPlayers,
-  lastSeen
-}
-*/
-
+// ======================
+// POST /report
+// Receive server info from Roblox clients
+// Body: { jobId, placeId, objectName, players, maxPlayers }
+// ======================
 app.post("/report", (req, res) => {
   const { jobId, placeId, objectName, players, maxPlayers } = req.body;
 
@@ -35,10 +39,14 @@ app.post("/report", (req, res) => {
   res.json({ success: true });
 });
 
+// ======================
+// GET /servers
+// Return all active servers
+// ======================
 app.get("/servers", (req, res) => {
   const now = Date.now();
 
-  // Remove stale servers (10 minutes)
+  // Remove servers older than 10 minutes
   for (const [id, server] of servers.entries()) {
     if (now - server.lastSeen > 10 * 60 * 1000) {
       servers.delete(id);
@@ -48,7 +56,10 @@ app.get("/servers", (req, res) => {
   res.json(Array.from(servers.values()));
 });
 
+// ======================
+// Start server
+// ======================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("XZX Finder backend running on port", PORT);
+  console.log(`XZX Finder backend running on port ${PORT}`);
 });
