@@ -1,11 +1,11 @@
-import express from "express";
+const express = require("express");
 
 const app = express();
 app.use(express.json());
 
 const servers = new Map();
+
 /*
-structure:
 jobId => {
   jobId,
   placeId,
@@ -16,11 +16,11 @@ jobId => {
 }
 */
 
-// Roblox posts detections here
 app.post("/report", (req, res) => {
   const { jobId, placeId, objectName, players, maxPlayers } = req.body;
+
   if (!jobId || !objectName) {
-    return res.status(400).json({ error: "Missing data" });
+    return res.status(400).json({ error: "Missing jobId or objectName" });
   }
 
   servers.set(jobId, {
@@ -32,24 +32,23 @@ app.post("/report", (req, res) => {
     lastSeen: Date.now()
   });
 
-  res.json({ ok: true });
+  res.json({ success: true });
 });
 
-// Roblox fetches servers here
 app.get("/servers", (req, res) => {
   const now = Date.now();
 
-  // auto clean old servers (10 min)
-  for (const [id, s] of servers) {
-    if (now - s.lastSeen > 10 * 60 * 1000) {
+  // Remove stale servers (10 minutes)
+  for (const [id, server] of servers.entries()) {
+    if (now - server.lastSeen > 10 * 60 * 1000) {
       servers.delete(id);
     }
   }
 
-  res.json([...servers.values()]);
+  res.json(Array.from(servers.values()));
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  console.log("XZX Finder running on port", PORT)
-);
+app.listen(PORT, () => {
+  console.log("XZX Finder backend running on port", PORT);
+});
