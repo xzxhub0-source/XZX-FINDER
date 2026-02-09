@@ -1,50 +1,52 @@
-require("dotenv").config();
-
 const express = require("express");
 const cors = require("cors");
-const { Client, GatewayIntentBits } = require("discord.js");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-let activeServers = {};
+// In-memory server store
+let servers = {};
+const EXPIRE_MS = 60 * 1000; // 60 seconds
 
-const cleanInterval = 60 * 1000;
-
-// Discord Bot
-const bot = new Client({ intents: [GatewayIntentBits.Guilds] });
-
-bot.once("ready", () => {
-  console.log("Discord Bot Online!");
-});
-bot.login(process.env.DISCORD_TOKEN);
-
-// POST /api/report
+// Roblox reports a server
 app.post("/api/report", (req, res) => {
-    const { object, jobId, players, eps, timestamp } = req.body;
+  const { object, jobId, players, eps, timestamp } = req.body;
 
-    activeServers[jobId] = {
-        object,
-        jobId,
-        players,
-        eps,
-        timestamp
-    };
+  if (!object || !jobId) {
+    return res.status(400).json({ error: "Missing data" });
+  }
 
-    res.send({ ok: true });
+  servers[jobId] = {
+    object,
+    jobId,
+    players: players || 0,
+    eps: eps || 0,
+    timestamp: timestamp || Math.floor(Date.now() / 1000)
+  };
+
+  res.json({ success: true });
 });
 
-// GET /api/servers
+// Roblox GUI fetches servers
 app.get("/api/servers", (req, res) => {
-    const now = Date.now();
-    for (let key in activeServers) {
-        if (now - (activeServers[key].timestamp * 1000) > cleanInterval)
-            delete activeServers[key];
+  const now = Date.now();
+
+  for (const id in servers) {
+    if (now - servers[id].timestamp * 1000 > EXPIRE_MS) {
+      delete servers[id];
     }
-    res.json(Object.values(activeServers));
+  }
+
+  res.json(Object.values(servers));
 });
 
-// Start
+// Health check (optional but useful)
+app.get("/", (req, res) => {
+  res.send("XZX Server Finder backend online");
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Backend running on ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`XZX Finder backend running on port ${PORT}`);
+});
