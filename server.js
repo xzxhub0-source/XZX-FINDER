@@ -1,153 +1,254 @@
-// discord-bot.js - Discord Bot for XZX Finder
-const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes } = require('discord.js');
 const express = require('express');
 const app = express();
+app.use(express.json());
 
-const BOT_TOKEN = 'YOUR_DISCORD_BOT_TOKEN';
-const CHANNEL_ID = 'YOUR_CHANNEL_ID';
-const GUILD_ID = 'YOUR_GUILD_ID';
+// ==================== CONFIGURATION ====================
+const EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+const CLEANUP_INTERVAL = 60 * 1000; // 1 minute
+const MAX_SERVERS = 500;
 
-const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
-    ]
-});
+// ==================== IN-MEMORY STORAGE ====================
+const servers = new Map();
+const reportedIPs = new Map();
 
-let activeServers = [];
-let lastEmbedMessage = null;
+// ==================== DISCORD BOT SETUP (OPTIONAL) ====================
+let discordClient = null;
+let discordReady = false;
 
-client.once('ready', () => {
-    console.log(`✅ XZX Bot logged in as ${client.user.tag}`);
+// Only attempt Discord if token exists AND is valid format
+if (process.env.DISCORD_BOT_TOKEN && 
+    process.env.DISCORD_BOT_TOKEN.length > 10 &&
+    process.env.DISCORD_CHANNEL_ID) {
     
-    // Update server list every 30 seconds
-    setInterval(async () => {
-        await updateServerEmbed();
-    }, 30000);
-});
-
-// Update Discord embed with server list
-async function updateServerEmbed() {
     try {
-        const channel = await client.channels.fetch(CHANNEL_ID);
-        if (!channel) return;
+        const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
         
-        // Sort servers by EPS
-        const topServers = activeServers
-            .sort((a, b) => b.eps - a.eps)
-            .slice(0, 10);
-        
-        const embed = new EmbedBuilder()
-            .setTitle('🎯 XZX FINDER - LIVE SERVERS')
-            .setColor(0x9B59B6)
-            .setTimestamp()
-            .setFooter({ text: `Total: ${activeServers.length} servers | XZX v2.0` });
-        
-        if (topServers.length === 0) {
-            embed.setDescription('No servers found. Waiting for reports...');
-        } else {
-            topServers.forEach((server, index) => {
-                embed.addFields({
-                    name: `${index + 1}. ${server.object || 'Unknown'}`,
-                    value: `📊 **Players:** ${server.players || '0/20'} | ⚡ **EPS:** ${server.epsText || '0/s'}\n🆔 \`${server.jobId || 'No ID'}\``,
-                    inline: false
-                });
-            });
-            
-            embed.addFields({
-                name: '📡 Scanner Network',
-                value: `${activeServers.length} active scanners | ${CONFIG.CATEGORIES.SECRET.length} Secret | ${CONFIG.CATEGORIES.BRAINROT.length} Brainrot | ${CONFIG.CATEGORIES.OG.length} OG`,
-                inline: false
-            });
-        }
-        
-        // Edit existing message or send new one
-        if (lastEmbedMessage) {
+        async function initDiscordBot() {
             try {
-                const message = await channel.messages.fetch(lastEmbedMessage);
-                await message.edit({ embeds: [embed] });
-                return;
-            } catch (e) {
-                lastEmbedMessage = null;
+                discordClient = new Client({ 
+                    intents: [GatewayIntentBits.Guilds] 
+                });
+
+                discordClient.once('ready', () => {
+                    console.log(`✅ Discord bot logged in as ${discordClient.user.tag}`);
+                    discordReady = true;
+                });
+
+                // Don't await here - let it run async
+                discordClient.login(process.env.DISCORD_BOT_TOKEN).catch(err => {
+                    console.log('⚠️ Discord bot login failed - continuing without Discord');
+                    discordReady = false;
+                });
+            } catch (error) {
+                console.log('⚠️ Discord bot initialization skipped - continuing without Discord');
+                discordReady = false;
             }
         }
         
-        const msg = await channel.send({ embeds: [embed] });
-        lastEmbedMessage = msg.id;
-        
+        initDiscordBot();
     } catch (error) {
-        console.error('Failed to update embed:', error);
+        console.log('⚠️ Discord.js not available - continuing without Discord');
+        discordReady = false;
+    }
+} else {
+    console.log('ℹ️ Discord bot not configured - running in API-only mode');
+}
+
+async function sendDiscordEmbed(data) {
+    if (!discordReady || !discordClient) return;
+    
+    try {
+        const channel = await discordClient.channels.fetch(process.env.DISCORD_CHANNEL_ID);
+        if (!channel) return;
+
+        const { EmbedBuilder } = require('discord.js');
+        const embed = new EmbedBuilder()
+            .setTitle(`🎯 **${data.object}** Discovered!`)
+            .setDescription(`
+                **Server Details:**
+                \`\`\`yaml
+Job ID: ${data.jobId}
+Players: ${data.players}
+EPS: ${data.eps.toLocaleString()}
+                \`\`\`
+            `)
+            .setColor(0x9B59B6)
+            .setTimestamp()
+            .setFooter({ 
+                text: 'XZX Hub Finder • Live Scanner'
+            });
+
+        await channel.send({ embeds: [embed] });
+        console.log(`📤 Discord: ${data.object} (${data.eps} EPS)`);
+    } catch (error) {
+        // Silently fail - don't crash the server
+        discordReady = false;
     }
 }
 
-// Handle server reports
-client.on('messageCreate', async (message) => {
-    if (message.channelId !== CHANNEL_ID) return;
-    if (message.author.bot) return;
+// ==================== CLEANUP SERVICE ====================
+function cleanupExpiredServers() {
+    const now = Date.now();
+    let expired = 0;
+
+    for (const [jobId, data] of servers.entries()) {
+        if (now - data.timestamp > EXPIRY_MS) {
+            servers.delete(jobId);
+            expired++;
+        }
+    }
+
+    if (servers.size > MAX_SERVERS) {
+        const sorted = [...servers.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp);
+        const toDelete = sorted.slice(0, servers.size - MAX_SERVERS);
+        toDelete.forEach(([jobId]) => servers.delete(jobId));
+        console.log(`🧹 Memory cleanup: removed ${toDelete.length} oldest servers`);
+    }
+
+    if (expired > 0) {
+        console.log(`🧹 Cleanup: removed ${expired} expired servers (${servers.size} active)`);
+    }
+}
+
+setInterval(cleanupExpiredServers, CLEANUP_INTERVAL);
+
+// ==================== API ENDPOINTS ====================
+
+// Health check
+app.get('/', (req, res) => {
+    res.json({
+        status: 'online',
+        servers: servers.size,
+        discord: discordReady,
+        uptime: process.uptime(),
+        endpoints: ['/api/servers', '/api/report', '/api/stats']
+    });
+});
+
+// GET /api/servers - Get active servers
+app.get('/api/servers', (req, res) => {
+    const now = Date.now();
+    const activeServers = [];
+    const search = req.query.search ? req.query.search.toLowerCase() : '';
+    const minEps = req.query.minEps ? parseInt(req.query.minEps) : 0;
+    const limit = req.query.limit ? parseInt(req.query.limit) : 100;
+
+    for (const data of servers.values()) {
+        if (now - data.timestamp > EXPIRY_MS) continue;
+        if (search && !data.object.toLowerCase().includes(search)) continue;
+        if (data.eps < minEps) continue;
+
+        activeServers.push(data);
+    }
+
+    activeServers.sort((a, b) => b.eps - a.eps);
+    const limited = activeServers.slice(0, limit);
+
+    res.json({
+        count: limited.length,
+        total: activeServers.length,
+        servers: limited,
+        timestamp: now
+    });
+});
+
+// POST /api/report - Receive scanner data
+app.post('/api/report', async (req, res) => {
+    const { object, jobId, players, eps, timestamp } = req.body;
     
-    // Parse JSON from message
+    if (!jobId || !eps) {
+        return res.status(400).json({ 
+            error: 'Missing required fields',
+            required: ['jobId', 'eps'] 
+        });
+    }
+
+    // Rate limiting
+    const clientIp = req.ip || req.connection.remoteAddress || '0.0.0.0';
+    const now = Date.now();
+    const lastReport = reportedIPs.get(clientIp) || 0;
+    
+    if (now - lastReport < 30000) {
+        return res.status(429).json({ 
+            error: 'Rate limited', 
+            retryAfter: 30 
+        });
+    }
+    reportedIPs.set(clientIp, now);
+
     try {
-        const data = JSON.parse(message.content);
-        if (data.jobId && data.object) {
-            // Update active servers list
-            const existingIndex = activeServers.findIndex(s => s.jobId === data.jobId);
-            if (existingIndex >= 0) {
-                activeServers[existingIndex] = data;
-            } else {
-                activeServers.push(data);
-            }
-            
-            // Keep only last 100 servers
-            if (activeServers.length > 100) {
-                activeServers = activeServers.slice(-100);
+        const existing = servers.get(jobId);
+        
+        if (!existing || eps > existing.eps) {
+            const serverData = {
+                object: object || 'Unknown',
+                jobId,
+                players: players || '0/0',
+                eps: Math.round(eps),
+                timestamp: timestamp || now,
+                firstSeen: existing ? existing.firstSeen : now,
+                reportCount: existing ? existing.reportCount + 1 : 1
+            };
+
+            servers.set(jobId, serverData);
+            console.log(`📥 ${object || 'Unknown'} | ${eps} EPS | ${jobId.substring(0,8)}...`);
+
+            // Send Discord notification (non-blocking)
+            if (eps >= 1000 && discordReady) {
+                sendDiscordEmbed(serverData).catch(() => {});
             }
         }
-    } catch (e) {
-        // Not JSON
+
+        res.json({ 
+            status: 'success',
+            serverCount: servers.size
+        });
+
+    } catch (error) {
+        console.error('❌ Error:', error.message);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// Slash commands
-const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
+// GET /api/stats - System statistics
+app.get('/api/stats', (req, res) => {
+    const now = Date.now();
+    let totalEps = 0;
+    let uniqueObjects = new Set();
+    let activeCount = 0;
 
-client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isCommand()) return;
-    
-    const { commandName } = interaction;
-    
-    if (commandName === 'servers') {
-        await interaction.deferReply();
-        
-        const category = interaction.options.getString('category') || 'all';
-        let servers = activeServers;
-        
-        if (category !== 'all') {
-            servers = servers.filter(s => s.category === category.toUpperCase());
+    for (const data of servers.values()) {
+        if (now - data.timestamp <= EXPIRY_MS) {
+            activeCount++;
+            totalEps += data.eps;
+            uniqueObjects.add(data.object);
         }
-        
-        const embed = new EmbedBuilder()
-            .setTitle(`📡 XZX Servers - ${category.toUpperCase()}`)
-            .setColor(0x9B59B6)
-            .setTimestamp();
-        
-        const topServers = servers
-            .sort((a, b) => b.eps - a.eps)
-            .slice(0, 5);
-        
-        if (topServers.length === 0) {
-            embed.setDescription('No servers found.');
-        } else {
-            topServers.forEach((server, i) => {
-                embed.addFields({
-                    name: `${i+1}. ${server.object}`,
-                    value: `Players: ${server.players} | EPS: ${server.epsText}\n\`${server.jobId}\``
-                });
-            });
-        }
-        
-        await interaction.editReply({ embeds: [embed] });
     }
+
+    res.json({
+        activeServers: activeCount,
+        totalServers: servers.size,
+        uniqueObjects: uniqueObjects.size,
+        totalEps: totalEps,
+        averageEps: activeCount > 0 ? Math.round(totalEps / activeCount) : 0,
+        discordConnected: discordReady,
+        uptime: process.uptime()
+    });
 });
 
-client.login(BOT_TOKEN);
+// ==================== START SERVER ====================
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`
+╔══════════════════════════════════════════╗
+║     XZX Hub Finder Backend v1.0.0        ║
+╠══════════════════════════════════════════╣
+║  📡 URL: https://xzx-finder-production.up.railway.app ║
+║  📡 Port: ${PORT}                          ║
+║  🧹 Expiry: ${EXPIRY_MS/60000} minutes                  ║
+║  🤖 Discord: ${discordReady ? '✅' : '❌'}                       ║
+║  🌐 Status: ONLINE                       ║
+╚══════════════════════════════════════════╝
+    `);
+});
